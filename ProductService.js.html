@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: ProductService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: ProductService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import {products_v3_with_promo, promotions} from "../../api/Products/ProductRequests";
+import { sendFavoriteProduct, deleteFavoriteProduct } from "../../api/Order";
+import {getBrands} from "../../api/Brand";
+
+/** @module ProductServices/ProductService */
+
+/** @author Alibek */
+/**
+ * @class
+ * @classdesc Service для обработки данных продукта
+ * */
+class ProductService {
+  /**
+   * @name ProductService - метод
+   * Функция определяет количество товаров определенного бренда
+   * и меняет цену текущего бренда в зависимости от activate_price_block_count.
+   * Если количество блоков больше activate_price_block_count, то берет соответствующую цену
+   * @function checkNextPrice
+   *
+   * @param {array} cart все товары в корзине
+   * @param {number} brandId Id - текущего бренда
+   * @param {array} prices - массив цен с activate_price_block_count
+   *
+   * @return {number} 5500 - новый price
+   */
+  checkNextPrice = (cart, brandId, prices) => {
+    let sameBrands = cart.filter((item) => item.brand_id === brandId);
+    let sameBrandsBlockCount = sameBrands.reduce((total, current) => { return total + (current.count / current.block_step)}, 0);
+
+    let sortedPrices = Array.isArray(prices)
+      ? prices.sort((a, b) => a.activate_price_block_count - b.activate_price_block_count)
+      : [];
+
+    let returnPrice = sortedPrices.length !== 0
+      ? sortedPrices[0].price
+      : 0
+
+    if (sortedPrices.length !== 0) {
+      for (const priceItem of sortedPrices) {
+        if (sameBrandsBlockCount >= priceItem.activate_price_block_count) {
+          returnPrice = priceItem.price;
+        }
+      }
+    }
+
+    return returnPrice;
+  };
+
+  /**
+   * @name ProductService - метод
+   * Функция находит product по id.
+   * @function getSavedCartItem
+   *
+   * @param {array} cart все товары в корзине
+   * @param {number} productId - id текущего продукта
+   *
+   * @return {object} возвращает один товар (Опциональное)
+   * @example
+   * {id: 1, count: 5, prices:[...],...}
+   */
+  getSavedCartItem = (cart, productId) => {
+    if(Array.isArray(cart)) {
+      let item = cart.find((item) => item.id === productId);
+      if(item !== undefined) {
+        return item;
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * @names ProductService - метод
+   * Функция получает на вход массив stocks.
+   * @example
+   * [{"id": 349,"quantity": 11280, "reservation": 10, "warehouse_id": 9}]
+   * Дальше запускается цикл по массиву и увеличивает quantitySum и reservationSum
+   *
+   * @function calculateRemainingStock
+   *
+   * @param {array?} stocks - стоки одного продукта
+   * @example [{"id": 349,"quantity": 11280, "reservation": 10, "warehouse_id": 9}]
+   *
+   * return {number} - (quantitySum - reservationSum)
+   */
+  calculateRemainingStock = (stocks) => {
+    let remainder = 0;
+
+    if (stocks.length !== 0) {
+      let quantitySum = 0;
+      let reservationSum = 0;
+
+      for (const stock of stocks) {
+        quantitySum += stock.quantity;
+        reservationSum += stock.reservation;
+      }
+
+      remainder = quantitySum - reservationSum;
+    }
+
+    return remainder;
+  }
+
+  // to find out whether the quantity exceeded the balance or not
+  isQuantityExceedingStock = (quantity, stock, useNewSystem) => {
+    return quantity >= stock &amp;&amp; useNewSystem === true
+  }
+
+  // receive promotion blocks without products
+  getPromotionBlocks = async (page = 1) => {
+    let promotionResponse = await promotions(page)
+
+    if(promotionResponse.status === 200){
+      return promotionResponse.data.data
+    }
+
+    return [];
+  }
+
+  getProductByPromotion = async (warehouseId, promotion_id, page = 1 ) => {
+    let response = await products_v3_with_promo(warehouseId, promotion_id, page);
+    if(response.status === 200){
+      return response.data.data
+    }
+
+    return [];
+  }
+
+  getFavoriteProducts = (products) => {
+    return products
+      .filter((product) => product.stocks.length !== 0 &amp;&amp; product.stocks[0].favorite === true)
+      .map((product) => {
+        return {
+          productId: product.id,
+          stockId: product.stocks[0].id,
+        }
+      })
+  }
+
+  productIsFavorite = (favoriteProducts, productId) => {
+    return favoriteProducts.some(
+      (item) => item.productId === productId
+    )
+  }
+
+  addFavoriteProduct = async (productId, stockId) => {
+    let response = await sendFavoriteProduct(stockId);
+
+    if(response.status === 200 || response.status === 201){
+      return {
+        productId: productId,
+        stockId: stockId,
+      }
+    }
+
+    return null
+  }
+
+  removeFavoriteProduct = async (productId, stockId) => {
+    let response = await deleteFavoriteProduct(stockId);
+
+    if(response.status === 200 || response.status === 201){
+      return {
+        productId: productId,
+        stockId: stockId,
+      }
+    }
+
+    return null
+  }
+
+  loadBrands = async (countryId) => {
+    let response = await getBrands(countryId)
+    if(response.status === 200 || response.status === 201){
+      return response.data
+    }
+
+    return []
+  }
+
+}
+
+export default ProductService;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-ProductServices_ProductService.html">ProductServices/ProductService</a></li></ul><h3>Classes</h3><ul><li><a href="module-ProductServices_ProductService-ProductService.html">ProductService</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Fri Nov 08 2024 16:47:27 GMT+0500 (West Kazakhstan Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
